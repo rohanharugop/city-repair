@@ -16,6 +16,10 @@ interface IncidentForm {
   location: string;
   description: string;
   photos: File[];
+  // Transaction fields
+  transactionName: string;
+  transactionAccount: string;
+  transactionAmount: string;
 }
 
 interface UserProfile {
@@ -31,7 +35,10 @@ export default function ReportIncidentPage() {
   const [formData, setFormData] = useState<IncidentForm>({
     location: "",
     description: "",
-    photos: []
+    photos: [],
+    transactionName: "",
+    transactionAccount: "",
+    transactionAmount: ""
   });
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -150,7 +157,10 @@ export default function ReportIncidentPage() {
     setFormData({
       location: locationString,
       description: "",
-      photos: []
+      photos: [],
+      transactionName: "",
+      transactionAccount: "",
+      transactionAmount: ""
     });
     setPhotoPreviews([]);
     setShowForm(true);
@@ -234,11 +244,40 @@ export default function ReportIncidentPage() {
     return Promise.all(uploadPromises);
   };
 
+  const generateUniqueTransactionId = () => {
+    // Generate a unique transaction ID with timestamp and random string
+    const timestamp = Date.now().toString(36);
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    return `TXN-${timestamp}-${randomStr}`.toUpperCase();
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.description.trim()) {
       alert("Please provide a description of the incident");
+      return;
+    }
+
+    // Validate transaction fields
+    if (!formData.transactionName.trim()) {
+      alert("Please provide a transaction name");
+      return;
+    }
+
+    if (!formData.transactionAccount.trim()) {
+      alert("Please provide an account");
+      return;
+    }
+
+    if (!formData.transactionAmount.trim()) {
+      alert("Please provide a transaction amount");
+      return;
+    }
+
+    const amount = parseFloat(formData.transactionAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Please provide a valid transaction amount greater than 0");
       return;
     }
 
@@ -258,7 +297,7 @@ export default function ReportIncidentPage() {
       }
 
       // Insert report data into Supabase reports table
-      const { data, error } = await supabase
+      const { data: reportData, error: reportError } = await supabase
         .from('reports')
         .insert([
           {
@@ -274,13 +313,44 @@ export default function ReportIncidentPage() {
         ])
         .select();
 
-      if (error) {
-        console.error('Error saving report:', error);
-        throw error;
+      if (reportError) {
+        console.error('Error saving report:', reportError);
+        throw reportError;
       }
 
-      console.log("Report saved successfully:", data);
-      alert("Incident reported successfully!");
+      if (!reportData || reportData.length === 0) {
+        throw new Error('No report data returned after insert');
+      }
+
+      const reportId = reportData[0].id;
+      console.log("Report saved successfully:", reportData);
+
+      // Insert transaction data into transactions table
+      const transactionId = generateUniqueTransactionId();
+      const { data: transactionData, error: transactionError } = await supabase
+        .from('transactions')
+        .insert([
+          {
+            transaction_id: transactionId,
+            report_id: reportId,
+            amount: amount,
+            name: formData.transactionName.trim(),
+            account: formData.transactionAccount.trim(),
+            transaction_verified: true,
+            transaction_time: new Date().toISOString()
+          }
+        ])
+        .select();
+
+      if (transactionError) {
+        console.error('Error saving transaction:', transactionError);
+        // Since the report was already saved, we should still show success
+        // but log the transaction error
+        alert("Incident reported successfully, but there was an issue saving the transaction details. Please contact support if needed.");
+      } else {
+        console.log("Transaction saved successfully:", transactionData);
+        alert("Incident and transaction reported successfully!");
+      }
       
       // Clean up preview URLs
       photoPreviews.forEach(url => URL.revokeObjectURL(url));
@@ -288,7 +358,14 @@ export default function ReportIncidentPage() {
       // Reset everything
       setSelectedLocation(null);
       setShowForm(false);
-      setFormData({ location: "", description: "", photos: [] });
+      setFormData({ 
+        location: "", 
+        description: "", 
+        photos: [],
+        transactionName: "",
+        transactionAccount: "",
+        transactionAmount: ""
+      });
       setPhotoPreviews([]);
       
     } catch (error) {
@@ -304,12 +381,30 @@ export default function ReportIncidentPage() {
     photoPreviews.forEach(url => URL.revokeObjectURL(url));
     
     setShowForm(false);
-    setFormData({ location: "", description: "", photos: [] });
+    setFormData({ 
+      location: "", 
+      description: "", 
+      photos: [],
+      transactionName: "",
+      transactionAccount: "",
+      transactionAmount: ""
+    });
     setPhotoPreviews([]);
   };
 
   const handleRetryProfile = () => {
     window.location.reload();
+  };
+
+  const formatCurrency = (value: string) => {
+    // Remove non-numeric characters except decimal point
+    const numericValue = value.replace(/[^0-9.]/g, '');
+    return numericValue;
+  };
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formattedAmount = formatCurrency(e.target.value);
+    setFormData({ ...formData, transactionAmount: formattedAmount });
   };
 
   // Show loading state
@@ -391,7 +486,7 @@ export default function ReportIncidentPage() {
         {showForm && (
           <div className="bg-white rounded-lg border p-6">
             <h2 className="text-xl font-semibold mb-4">Incident Report Form</h2>
-            <form onSubmit={handleFormSubmit} className="space-y-4">
+            <form onSubmit={handleFormSubmit} className="space-y-6">
               {/* Location Field */}
               <div>
                 <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-2">
@@ -429,6 +524,68 @@ export default function ReportIncidentPage() {
                 <p className="text-xs text-gray-500 mt-1">
                   Describe what happened, when it occurred, and any other relevant details
                 </p>
+              </div>
+
+              {/* Transaction Details Section */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">Transaction Details</h3>
+                <p className="text-sm text-gray-600">
+                  Please provide transaction information related to this incident
+                </p>
+                
+                {/* Transaction Name */}
+                <div>
+                  <label htmlFor="transactionName" className="block text-sm font-medium text-gray-700 mb-2">
+                    Transaction Name *
+                  </label>
+                  <input
+                    type="text"
+                    id="transactionName"
+                    value={formData.transactionName}
+                    onChange={(e) => setFormData({ ...formData, transactionName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter transaction name or description"
+                    required
+                  />
+                </div>
+
+                {/* Account */}
+                <div>
+                  <label htmlFor="transactionAccount" className="block text-sm font-medium text-gray-700 mb-2">
+                    Account *
+                  </label>
+                  <input
+                    type="text"
+                    id="transactionAccount"
+                    value={formData.transactionAccount}
+                    onChange={(e) => setFormData({ ...formData, transactionAccount: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter account name or number"
+                    required
+                  />
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <label htmlFor="transactionAmount" className="block text-sm font-medium text-gray-700 mb-2">
+                    Amount *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-gray-500">$</span>
+                    <input
+                      type="text"
+                      id="transactionAmount"
+                      value={formData.transactionAmount}
+                      onChange={handleAmountChange}
+                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Enter the transaction amount (numbers and decimal point only)
+                  </p>
+                </div>
               </div>
 
               {/* Photo Upload Section */}

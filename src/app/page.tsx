@@ -8,14 +8,12 @@ import { CitizenDashboard } from "@/components/citizen-dashboard"
 import { ContractorDashboard } from "@/components/contractor-dashboard"
 import { Button } from "@/components/ui/button"
 
-
 export default function HomePage() {
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [redirecting, setRedirecting] = useState(false)
   const router = useRouter()
-
 
   useEffect(() => {
     // Check initial session
